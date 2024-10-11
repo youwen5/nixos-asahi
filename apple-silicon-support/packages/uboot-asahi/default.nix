@@ -9,10 +9,10 @@
     # tracking: https://pagure.io/fedora-asahi/uboot-tools/commits/main
     owner = "AsahiLinux";
     repo = "u-boot";
-    rev = "asahi-v2024.04-1";
+    rev = "asahi-v2024.07-1";
     hash = "sha256-/cpdNLO83pW9uOKFJgGQdSzNUQuE2x5oLVFeoElcTbs=";
   };
-  version = "2024.04-1-asahi";
+  version = "2024.07-1-asahi";
 
   defconfig = "apple_m1_defconfig";
   extraMeta.platforms = [ "aarch64-linux" ];
@@ -45,7 +45,7 @@
   '';
 }).overrideAttrs (o: {
   # nixos's downstream patches are not applicable
-  patches = [ 
+  patches = [ ./openssl-no-engine.patch
   ];
 
   # DTC= flag somehow breaks DTC compilation so we remove it
