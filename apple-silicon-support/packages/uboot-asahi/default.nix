@@ -10,7 +10,7 @@
     owner = "AsahiLinux";
     repo = "u-boot";
     rev = "asahi-v2024.07-1";
-    hash = "sha256-/cpdNLO83pW9uOKFJgGQdSzNUQuE2x5oLVFeoElcTbs=";
+    hash = "sha256-TN82UydeOyt2EywFjAmtXR6x68XfzwMXxqoJyTxOwCw=";
   };
   version = "2024.07-1-asahi";
 
