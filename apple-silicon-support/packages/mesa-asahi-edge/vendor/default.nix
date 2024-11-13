@@ -15,6 +15,7 @@
 , intltool
 , jdupes
 , libdrm
+, libffi
 , libglvnd
 , libomxil-bellagio
 , libunwind
@@ -24,6 +25,7 @@
 , lm_sensors
 , meson
 , ninja
+, openssl
 , pkg-config
 , python3Packages
 , rust-bindgen
@@ -77,10 +79,12 @@
 ]
 }:
 
+# When updating this package, please verify at least these build (assuming x86_64-linux):
+# nix build .#mesa .#pkgsi686Linux.mesa .#pkgsCross.aarch64-multiplatform.mesa .#pkgsMusl.mesa
 
 let
-  version = "24.2.2";
-  hash = "sha256-1aRnG5BnFDuBOnGIb7X3yDk4PkhpBbMpp+IjfpmgtkM=";
+  version = "24.1.1";
+  hash = "sha256-ADiCbG9+iNkLTOb3GRkvpYyn3t9O3KoRdM972SDvieo=";
 
   # Release calendar: https://www.mesa3d.org/release-calendar.html
   # Release frequency: https://www.mesa3d.org/releasing.html#schedule
@@ -163,9 +167,13 @@ self = stdenv.mkDerivation {
 
   outputs = [
     "out" "dev" "drivers"
+  ] ++ lib.optionals enableOSMesa [
     "osmesa"
+  ] ++ lib.optionals stdenv.isLinux [
     "driversdev"
+  ] ++ lib.optionals enableTeflon [
     "teflon"
+  ] ++ lib.optionals enableOpenCL [
     "opencl"
   ] ++ lib.optionals haveDozen [
     # the Dozen drivers depend on libspirv2dxil, but link it statically, and
@@ -219,6 +227,19 @@ self = stdenv.mkDerivation {
     (lib.mesonBool "install-intel-clc" false)
     (lib.mesonEnable "intel-rt" stdenv.hostPlatform.isx86_64)
     (lib.mesonOption "clang-libdir" "${llvmPackages.clang-unwrapped.lib}/lib")
+  ] ++ lib.optionals stdenv.isDarwin [
+    # Disable features that are explicitly unsupported on the platform
+    (lib.mesonEnable "gbm" true)
+    (lib.mesonEnable "xlib-lease" false)
+    (lib.mesonEnable "egl" true)
+    (lib.mesonEnable "gallium-vdpau" false)
+    (lib.mesonEnable "gallium-va" false)
+    (lib.mesonEnable "gallium-xa" false)
+    (lib.mesonEnable "lmsensors" false)
+    (lib.mesonEnable "glvnd" true)
+    # This gets enabled by mesonAutoFeatures and fails on aarch64-darwin,
+    # which makes no sense because Darwin has neither Intel nor RT, but OK
+    (lib.mesonEnable "intel-rt" false)
   ] ++ lib.optionals enableOpenCL [
     # Clover, old OpenCL frontend
     (lib.mesonOption "gallium-opencl" "icd")
@@ -244,6 +265,8 @@ self = stdenv.mkDerivation {
   buildInputs = with xorg; [
     expat
     spirv-tools
+    glslang
+    libffi
     libglvnd
     libomxil-bellagio
     libunwind
@@ -257,6 +280,9 @@ self = stdenv.mkDerivation {
     libXfixes
     libXrandr
     libXxf86vm
+    libXt
+    libXvMC
+    libpthreadstubs
     libxcb
     libxshmfence
     xcbutilkeysyms
@@ -308,9 +334,7 @@ self = stdenv.mkDerivation {
     python3Packages.ply
     python3Packages.pyyaml
     jdupes
-    # Use bin output from glslang to not propagate the dev output at
-    # the build time with the host glslang.
-    (lib.getBin glslang)
+    glslang
     rustc
     rust-bindgen
     rust-cbindgen
@@ -327,6 +351,7 @@ self = stdenv.mkDerivation {
   ];
 
   propagatedBuildInputs = (with xorg; [
+    libXdamage
     libXxf86vm
   ]) ++ lib.optionals withLibdrm [
     libdrm
@@ -335,42 +360,61 @@ self = stdenv.mkDerivation {
   doCheck = false;
 
   postInstall = ''
-    # Move driver-related bits to $drivers
-    moveToOutput "lib/lib*_mesa*" $drivers
-    moveToOutput "lib/libpowervr_rogue*" $drivers
-    moveToOutput "lib/libxatracker*" $drivers
-    moveToOutput "lib/libvulkan_*" $drivers
-    # Update search path used by glvnd (it's pointing to $out but drivers are in $drivers)
+    # Some installs don't have any drivers so this directory is never created.
+    mkdir -p $drivers $osmesa
+  '' + lib.optionalString stdenv.isLinux ''
+    mkdir -p $drivers/lib
+
+    if [ -n "$(shopt -s nullglob; echo "$out/lib/libxatracker"*)" -o -n "$(shopt -s nullglob; echo "$out/lib/libvulkan_"*)" ]; then
+      # move gallium-related stuff to $drivers, so $out doesn't depend on LLVM
+      mv -t $drivers/lib       \
+        $out/lib/libpowervr_rogue* \
+        $out/lib/libxatracker* \
+        $out/lib/libvulkan_*
+    fi
+
+    if [ -n "$(shopt -s nullglob; echo "$out"/lib/lib*_mesa*)" ]; then
+      # Move other drivers to a separate output
+      mv -t $drivers/lib $out/lib/lib*_mesa*
+    fi
+
     # Update search path used by glvnd
     for js in $drivers/share/glvnd/egl_vendor.d/*.json; do
       substituteInPlace "$js" --replace '"libEGL_' '"'"$drivers/lib/libEGL_"
     done
 
-    # And same for Vulkan
+    # Update search path used by Vulkan (it's pointing to $out but
+    # drivers are in $drivers)
     for js in $drivers/share/vulkan/icd.d/*.json; do
-      substituteInPlace "$js" --replace-fail "$out" "$drivers"
+      substituteInPlace "$js" --replace "$out" "$drivers"
     done
-    
-    # Move Vulkan layers to $drivers and update manifests
-    moveToOutput "lib/libVkLayer*" $drivers
-    for js in $drivers/share/vulkan/{im,ex}plicit_layer.d/*.json; do
-      substituteInPlace "$js" --replace '"libVkLayer_' '"'"$drivers/lib/libVkLayer_"
-    done
+  '' + lib.optionalString enableOpenCL ''
+    # Move OpenCL stuff
+    mkdir -p $opencl/lib
+    mv -t "$opencl/lib/"     \
+      $out/lib/gallium-pipe   \
+      $out/lib/lib*OpenCL*
 
-    # Construct our own .icd files that contain absolute paths.
+    # We construct our own .icd files that contain absolute paths.
     mkdir -p $opencl/etc/OpenCL/vendors/
     echo $opencl/lib/libMesaOpenCL.so > $opencl/etc/OpenCL/vendors/mesa.icd
     echo $opencl/lib/libRusticlOpenCL.so > $opencl/etc/OpenCL/vendors/rusticl.icd
-    moveToOutput bin/intel_clc $driversdev
-    moveToOutput lib/gallium-pipe $opencl
-    moveToOutput "lib/lib*OpenCL*" $opencl
-    moveToOutput "lib/libOSMesa*" $osmesa
-    moveToOutput bin/spirv2dxil $spirv2dxil
-    moveToOutput "lib/libspirv_to_dxil*" $spirv2dxil
-    moveToOutput lib/libteflon.so $teflon
+  '' + lib.optionalString enableOSMesa ''
+    # move libOSMesa to $osmesa, as it's relatively big
+    mkdir -p $osmesa/lib
+    mv -t $osmesa/lib/ $out/lib/libOSMesa*
+  '' + lib.optionalString (vulkanLayers != []) ''
+    mv -t $drivers/lib $out/lib/libVkLayer*
+    for js in $drivers/share/vulkan/{im,ex}plicit_layer.d/*.json; do
+      substituteInPlace "$js" --replace '"libVkLayer_' '"'"$drivers/lib/libVkLayer_"
+    done
+  '' + lib.optionalString haveDozen ''
+    mkdir -p $spirv2dxil/{bin,lib}
+    mv -t $spirv2dxil/lib $out/lib/libspirv_to_dxil*
+    mv -t $spirv2dxil/bin $out/bin/spirv2dxil
   '';
 
-  postFixup = ''
+  postFixup = lib.optionalString stdenv.isLinux ''
     # set the default search path for DRI drivers; used e.g. by X server
     for pc in lib/pkgconfig/{dri,d3d}.pc; do
       [ -f "$dev/$pc" ] && substituteInPlace "$dev/$pc" --replace "$drivers" "${libglvnd.driverLink}"
@@ -390,6 +434,7 @@ self = stdenv.mkDerivation {
       fi
     done
 
+    moveToOutput bin/intel_clc $driversdev
 
     # Don't depend on build python
     patchShebangs --host --update $out/bin/*
@@ -406,7 +451,7 @@ self = stdenv.mkDerivation {
     done
     # add RPATH here so Zink can find libvulkan.so
     ${lib.optionalString haveZink ''
-      patchelf --add-rpath ${vulkan-loader}/lib $out/lib/libgallium*.so
+      patchelf --add-rpath ${vulkan-loader}/lib $drivers/lib/dri/zink_dri.so
     ''}
 
     ${lib.optionalString enableTeflon ''
@@ -427,12 +472,16 @@ self = stdenv.mkDerivation {
     inherit (libglvnd) driverLink;
     inherit llvmPackages;
 
-    tests.devDoesNotDependOnLLVM = stdenv.mkDerivation {
-      name = "mesa-dev-does-not-depend-on-llvm";
-      buildCommand = ''
-        echo ${self.dev} >>$out
-      '';
-      disallowedRequisites = [ llvmPackages.llvm self.drivers ];
+    libdrm = if withLibdrm then libdrm else null;
+
+    tests = lib.optionalAttrs stdenv.isLinux {
+      devDoesNotDependOnLLVM = stdenv.mkDerivation {
+        name = "mesa-dev-does-not-depend-on-llvm";
+        buildCommand = ''
+          echo ${self.dev} >>$out
+        '';
+        disallowedRequisites = [ llvmPackages.llvm self.drivers ];
+      };
     };
   };
 
