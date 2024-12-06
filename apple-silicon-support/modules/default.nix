@@ -18,7 +18,7 @@
       # see https://github.com/NixOS/nixpkgs/pull/355290
       # and https://github.com/systemd/systemd/issues/35026
       systemd.package = let
-        systemdBroken = (lib.versionAtLeast pkgs.systemd.version "256.7");
+        systemdBroken = (pkgs.systemd.version == "256.7");
         systemdPatched = pkgs.systemd.overrideAttrs (old: {
           patches = let
             oldPatches = (old.patches or []);
