@@ -34,6 +34,9 @@
         { original = pkgs.mesa;
           replacement = config.hardware.asahi.pkgs.mesa-asahi-edge;
         }
+        { original = pkgs.libgbm;
+          replacement = config.hardware.asahi.pkgs.libgbm-asahi-edge;
+        }
       ];
     })
     (lib.mkIf (isMode "overlay") {
@@ -44,6 +47,7 @@
         (final: prev: {
           # prevent cross-built Mesas that might be evaluated using this config (e.g. Steam emulation via box64) from using the special Asahi Mesa
           mesa = if prev.targetPlatform.isAarch64 then final.mesa-asahi-edge else prev.mesa;
+          libgbm = if prev.targetPlatform.isAarch64 then final.libgbm-asahi-edge else prev.libgbm;
         })
       ];
     })
