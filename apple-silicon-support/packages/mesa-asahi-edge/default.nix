@@ -8,11 +8,9 @@
   vulkanDrivers = [ "swrast" "asahi" ];
   vulkanLayers = [ "device-select" "overlay" ];
   eglPlatforms = [ "x11" "wayland" ];
-  withLibunwind = false;
   withValgrind = false;
-  enableGalliumNine = true;
   enableTeflon = false;
-  enablePatentEncumberedCodecs = false;
+  enablePatentEncumberedCodecs = true;
   # libclc and other OpenCL components are needed for geometry shader support on Apple Silicon
   enableOpenCL = true;
 }).overrideAttrs (oldAttrs: {
