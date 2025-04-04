@@ -1,11 +1,17 @@
 # the Asahi Linux kernel and options that must go along with it
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 {
   config = lib.mkIf config.hardware.asahi.enable {
-    boot.kernelPackages = let
-      pkgs' = config.hardware.asahi.pkgs;
-    in
+    boot.kernelPackages =
+      let
+        pkgs' = config.hardware.asahi.pkgs;
+      in
       pkgs'.linux-asahi.override {
         _kernelPatches = config.boot.kernelPatches;
         withRust = config.hardware.asahi.withRust;
@@ -56,7 +62,6 @@
 
     boot.kernelParams = [
       "earlycon"
-      "console=ttySAC0,115200n8"
       "console=tty0"
       "boot.shell_on_fail"
       # Apple's SSDs are slow (~dozens of ms) at processing flush requests which
@@ -93,8 +98,11 @@
   };
 
   imports = [
-    (lib.mkRemovedOptionModule [ "hardware" "asahi" "addEdgeKernelConfig" ]
-      "All edge kernel config options are now the default.")
+    (lib.mkRemovedOptionModule [
+      "hardware"
+      "asahi"
+      "addEdgeKernelConfig"
+    ] "All edge kernel config options are now the default.")
   ];
 
   options.hardware.asahi.withRust = lib.mkOption {
