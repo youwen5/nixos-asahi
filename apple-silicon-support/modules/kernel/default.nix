@@ -61,17 +61,23 @@
     ];
 
     boot.kernelParams = [
-      "earlycon"
-      "console=tty0"
+      # nice insurance against f***ing up the kernel so much, the Mac no longer boots
+      # (NixOS generations are another wonderful insurance policy, obvs)
       "boot.shell_on_fail"
-      # Apple's SSDs are slow (~dozens of ms) at processing flush requests which
-      # slows down programs that make a lot of fsync calls. This parameter sets
-      # a delay in ms before actually flushing so that such requests can be
-      # coalesced. Be warned that increasing this parameter above zero (default
-      # is 1000) has the potential, though admittedly unlikely, risk of
-      # UNBOUNDED data corruption in case of power loss!!!! Don't even think
-      # about it on desktops!!
-      "nvme_apple.flush_interval=0"
+      # There was originally a scary warning here from tpwrules based on the commit
+      # https://github.com/AsahiLinux/linux/commit/eecbf0d278c3a5785d460246e9baef22705410f1
+      # warning that if you set flush_interval > 0, there is a theoretical possibility
+      # of data loss for data written in the 1-2 seconds before power loss.  This is
+      # not a worry on laptops because they are battery-backed.  This risk can be mitigated
+      # on the desktop with a UPS.  Setting this to zero decreases disk performance by 95%
+      # so we set it to the recommended 1000 and don't worry too much about data loss
+      "nvme_apple.flush_interval=1000"
+      # make boot mostly silent, not because we don't appreciate the useful
+      # information (we do), but because spew slows down boot
+      "quiet"
+      "loglevel=4"
+      "systemd.show_status=auto"
+      "rd.udev.log_level=4"
     ];
 
     # U-Boot does not support EFI variables
